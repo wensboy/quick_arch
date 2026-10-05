@@ -95,11 +95,11 @@
       "additionalProperties": false,
       "properties": {
         "type": { "type": "string", "enum": ["rest", "rpc"] },
-        "rest": { "$ref": "#/$defs/serviceType" },
-        "rpc": { "$ref": "#/$defs/serviceType" }
+        "rest": { "$ref": "#/$defs/restServiceType" },
+        "rpc": { "$ref": "#/$defs/rpcServiceType" }
       }
     },
-    "serviceType": {
+    "restServiceType": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -108,6 +108,37 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "按序生效的全局中间件名"
+        }
+      }
+    },
+    "rpcServiceType": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string", "description": "监听地址" },
+        "unary_middlewares": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "按序生效的一元拦截器名 (带 _rpc 后缀)"
+        },
+        "stream_middlewares": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "按序生效的流拦截器名 (带 _rpc 后缀)"
+        },
+        "reflection": {
+          "type": "boolean",
+          "description": "注册 gRPC 服务反射, 便于 grpcurl 免 proto 调试"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "传输层 TLS; enabled 为开关, 路径可预置, cert/key 不可用时服务不会启动",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "cert_file": { "type": "string", "description": "服务端证书 PEM 路径 (开发用 make cert 生成)" },
+            "key_file": { "type": "string", "description": "服务端私钥 PEM 路径 (开发用 make cert 生成)" }
+          }
         }
       }
     },

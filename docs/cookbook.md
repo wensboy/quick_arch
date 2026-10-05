@@ -17,6 +17,11 @@
 13. 资源清理与连接关闭的顺序必须显式保证：先注册关闭（`t.Cleanup` 后进先出），后注册数据清理，确保清理执行时连接仍可用。
 14. 提交前执行 `gofmt -l`、`go build ./...`、`go vet ./...`、`go test ./...`（或 `make test`），并保持全绿。
 15. 新增端点按其领域挂载（builtin 领域 → `router/builtin.go` 的 `mountBuiltin`），版本前缀由 `v1` 路由统一提供。
+16. 新增 gRPC 服务要实现 `server.Service`（`Register(grpc.ServiceRegistrar)`，通常是 protoc 生成的 `RegisterXxxServer`），并加入 `router.Services()` 聚合（与 rest 的 `router.Routers()` 对称，聚合点统一在 router 包），由 `server.New(cfg, routers, services...)` 挂载；rpc 中间件按形态分别注册：`mc.RegisterUnary(name, factory)`（一元）与 `mc.RegisterStream(name, factory)`（流），名称按约定加 `_rpc` 后缀与 rest 划分。
+17. proto 源文件放 `proto/*.proto`；生成的 Go 代码固定与其同名目录 `proto/<name>/`（`<name>.pb.go` + `<name>_grpc.pb.go`），并且**必须提交进仓库**（编译依赖）；生成命令 `make protoc proto/<name>.proto proto/<name>/`；`option go_package` 必须写完整导入路径 + 包别名（如 `github.com/wensboy/quick_arch/proto/builtin;builtinpb`）。
+18. rpc 形态的实现与测试单独成文件，文件名加 `_rpc` 后缀与 rest 侧分开（如 `handler/builtin_rpc.go` / `builtin_rpc_test.go`、`middleware/builtin_rpc.go` / `builtin_rpc_test.go`）。
+19. 服务端新增能力（如 rpc 反射、TLS、超时）一律走「注册配置项 + 同步 `data/conf/config.json` 与 schema + 在 `serve ready` 日志体现」这条链路，不在代码里写死。
+20. 生成/构建工具统一在 `tools.go`（build tag `tools`）里以匿名 import 声明（swag、protoc-gen-go、protoc-gen-go-grpc），版本由 `go.mod` 锁定，用 `make tools` 装到 `$(go env GOPATH)/bin`；插件版本必须与已提交的 `proto/<name>/*.pb.go` 头部（`protoc-gen-go vX` / `protoc-gen-go-grpc vY`）一致——升级后重跑 `make protoc`，**无 diff** 才算对齐。
 
 ## 必须不做
 
@@ -32,8 +37,10 @@
 10. 不要在 `data/conf` 之外放配置类文件。
 11. 不要把 `data/conf/config.json` 当成运行期可覆盖的配置（它在编译期嵌入镜像/二进制）。
 12. 不要用 `CGO_ENABLED=0` 构建（`mattn/go-sqlite3` 需要 cgo），也不要指望 cgo 做 `GOARCH` 交叉编译多架构。
-13. 不要用 `go run <pkg>@<version>` 方式跑 swag：会走 `sum.golang.org` 校验（本机不可达），固定用 `go run github.com/swaggo/swag/cmd/swag`（版本由 `tools.go` + `go.mod` 固定）。
+13. 不要用 `go run <pkg>@<version>` 方式跑 swag：会走 `sum.golang.org` 校验（本机不可达），固定用 `go run github.com/swaggo/swag/cmd/swag`（版本由 `tools.go` + `go.mod` 固定）；同理不要用 `go install <pkg>@latest` 装 protoc 插件（版本会漂移，导致生成产物与仓库不一致），统一用 `make tools`。
 14. 不要在配置/路由改动后遗漏同步：`data/conf/config.json`、`data/conf/.schema/config.schema.json`、相关测试断言必须一起更新。
+15. 不要把 rest 的 `[]echo.MiddlewareFunc` 直接用到 rpc 上，也不要把一元与流混用：rest 走 `MiddlewareFactory`/`Resolve`、一元走 `UnaryInterceptorFactory`/`ResolveUnary`、流走 `StreamInterceptorFactory`/`ResolveStream`，三套注册表相互独立。
+16. 不要手改 `proto/<name>/*.pb.go`（重跑 `make protoc` 会覆盖），也不要把生成产物放到同名目录之外。
 
 ## 细节注意
 
@@ -59,3 +66,13 @@
 20. 容器构建：多阶段（`golang:1.25.6-alpine` 构建 + `alpine:3.21` 运行），需 `gcc`/`musl-dev` 且 `CGO_ENABLED=1`；运行阶段非 root(uid 10001)、预建可写 `data/log` 与 `data/store`、`HEALTHCHECK` 打 `/api/v1/ping`、`ENTRYPOINT=quick_arch` + `CMD=serve`；`GOPROXY` 默认 `https://goproxy.cn,direct` 可用 build-arg 覆盖。
 21. compose 用具名卷挂 `/app/data`（首建时镜像内目录与属主会被复制进卷，故非 root 仍可写）；`stop_grace_period: 30s` 大于应用 10s 优雅退出窗口；容器内配置是编译期嵌入的，运行期只能覆盖已注册 env 的键（`database` 无 env 入口）。
 22. 镜像内 `data/store/dev.db` 用的是内置 config 的 dev sqlite；若要接外部数据库，需要先给 `database` 增加运行期覆盖入口（如 `DATABASE=<json>`）。
+23. 服务类型切换用 `server.type`（`rest` 默认 / `rpc`）；rest 用 `server.rest.middlewares`（默认 `access_log,recover,request_id`），rpc 分为 `server.rpc.unary_middlewares` 与 `server.rpc.stream_middlewares`（默认均为 `recover_rpc`），`server.New` 中 `routers` 仅 rest 生效、`services` 仅 rpc 生效。
+24. `RpcServer`（grpc v1.84.0）内置 gRPC 健康检查服务（`health/grpc_health_v1`，整体 SERVING），探活用 `grpc_health_v1.NewHealthClient(conn).Check(...)`；`grpc.Server` 在 `Setup` 中创建（拦截器需运行时解析），`Start` 用 `net.Listen`，`Stop` 先 `GracefulStop`、超出 ctx 期限再 `Stop`；单测用 `test/bufconn` + `grpc.NewClient("passthrough:///bufnet", WithContextDialer(...), insecure credentials)`。
+25. `recover` 注册了三种形态：rest（echo，名 `recover`）、rpc 一元（名 `recover_rpc`）、rpc 流（名 `recover_rpc`），rpc 侧 panic 一律转 `codes.Internal`；`Registered()` 只列 echo 形态，rpc 形态分别用 `ResolveUnary`/`ResolveStream` 取用，`RpcServer` 用 `UseUnary`/`UseStream` 声明，`Setup` 分别挂 `grpc.ChainUnaryInterceptor`/`ChainStreamInterceptor`。
+26. `make protoc` 的位置参数从 `MAKECMDGOALS` 取（`make protoc <src> <target>`），省略 target 时默认 `proto/<name>/`，src 不存在直接报错退出；`PROTOC` 默认优先 `$HOME/.local/bin/protoc`、否则用 PATH 中的 `protoc`；插件从 PATH 找（Makefile 会追加 `$(go env GOPATH)/bin`，缺失时报错提示 `make tools`），版本由 `tools.go` + `go.mod` 锁定（当前 protoc-gen-go v1.36.12 / protoc-gen-go-grpc v1.6.2，与仓库里已提交的产物一致）。
+27. 生成路径能落到同目录的关键：`-I <src 所在目录>` + 只传 proto 的 basename + `--go_out=paths=source_relative:<target>`；builtin 的 rpc 实现在 `handler.BuiltinRPC`（`proto/builtin` 的 `builtinpb` 包），由 `router.Services()` 聚合进 `server.New(..., services...)`；`cmd/serve.go` 只做一次调用：`server.New(serverCfg, router.Routers(), router.Services()...)`。
+28. rpc 调试与传输安全：`server.rpc.reflection`（默认 true）注册 gRPC 服务反射，grpcurl 可免 proto 直接调试；`server.rpc.tls.enabled` / `server.rpc.tls.cert_file` / `server.rpc.tls.key_file` 开启传输层 TLS，**证书加载失败时 `Setup` 记录错误并由 `Start` 直接退出，不会静默降级为明文**；`serve ready` 日志会输出 `reflection` / `tls` 实际取值。
+29. grpcurl 用法（默认明文）：`grpcurl -plaintext 127.0.0.1:9090 list`、`grpcurl -plaintext 127.0.0.1:9090 describe builtin.Builtin`、`grpcurl -plaintext -d '{}' 127.0.0.1:9090 builtin.Builtin/Ping`、`grpcurl -plaintext 127.0.0.1:9090 grpc.health.v1.Health/Check`；开启 TLS 后加 `-cacert <server.crt>`（或临时 `-insecure`），不加会因握手失败报 connection reset。REST 侧目前未加 TLS（如需可同样支持，或由网关终止）。
+30. `make cert` 用 openssl 签发本地开发自签证书（默认 `data/cert/dev.{crt,key}`、`CN=localhost`、SAN `DNS:localhost,IP:127.0.0.1`、365 天、私钥 0600，`data/cert/` 已 gitignore，可用 `CERT_DIR`/`CERT_DAYS`/`CERT_SUBJECT`/`CERT_SAN` 覆盖）；出厂 `data/conf/config.json` 的 `server.rpc.tls` 已指向这两个文件（`enabled: true`），rpc 调试用 `grpcurl -cacert data/cert/dev.crt ...`（可用 `openssl s_client -connect 127.0.0.1:9090 -servername localhost -CAfile data/cert/dev.crt` 复核，期望 `Verify return code: 0 (ok)`）；新克隆未执行 `make cert` 时会以 `[50004] 服务 TLS 配置无效` 拒绝启动。
+31. `data/conf/*.json` 是编译期 `//go:embed` 进二进制的（`cmd.buildConfigStore` 只读嵌入 FS）：**改完 `config.json` 必须重新 `make build` / `go run` 才生效**，直接跑旧的 `build/quick_arch` 会沿用旧配置（表现为"配置改了没效果"）；临时改动用 flag 或 `SERVER_*` 环境变量覆盖即可，无需重建。
+32. `grpcurl <addr>` 不带 `-plaintext` 时默认走 TLS，dev 自签证书不在系统信任库，会报 `x509: certificate signed by unknown authority`，四种处理：①`grpcurl -cacert data/cert/dev.crt <addr> ...`；②`SSL_CERT_FILE=$PWD/data/cert/dev.crt grpcurl <addr> ...`（**只能单条命令用，不要 export**：Go 会用它替换系统根池，会影响同 shell 里 `go mod download` 等所有 Go 工具的 HTTPS）；③`-insecure`（跳过校验，仅本地临时用）；④把 `data/cert/dev.crt` 装进系统信任库（Arch：`sudo trust anchor --store data/cert/dev.crt`，撤销 `sudo trust anchor --remove data/cert/dev.crt`）。日常直接 `make grpcurl`（默认注入 `-cacert`，`RPC_FLAGS`/`RPC_ARGS`/`RPC_ADDR`/`RPC_TLS_FLAGS` 可覆盖）。

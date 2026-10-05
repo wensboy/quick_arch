@@ -5,24 +5,33 @@ import (
 	"sync"
 
 	"github.com/labstack/echo/v5"
+	"google.golang.org/grpc"
 
 	context2 "github.com/wensboy/quick_arch/internal/context"
 )
 
 type MiddlewareStore struct {
-	mu        sync.RWMutex
-	values    map[string]any
-	factories map[string]context2.MiddlewareFactory
-	resolved  map[string][]echo.MiddlewareFunc
+	mu              sync.RWMutex
+	values          map[string]any
+	factories       map[string]context2.MiddlewareFactory
+	resolved        map[string][]echo.MiddlewareFunc
+	unaryFactories  map[string]context2.UnaryInterceptorFactory
+	unaryResolved   map[string][]grpc.UnaryServerInterceptor
+	streamFactories map[string]context2.StreamInterceptorFactory
+	streamResolved  map[string][]grpc.StreamServerInterceptor
 }
 
 var _ context2.MiddlewareContext = (*MiddlewareStore)(nil)
 
 func NewMiddlewareStore() *MiddlewareStore {
 	return &MiddlewareStore{
-		values:    make(map[string]any),
-		factories: make(map[string]context2.MiddlewareFactory),
-		resolved:  make(map[string][]echo.MiddlewareFunc),
+		values:          make(map[string]any),
+		factories:       make(map[string]context2.MiddlewareFactory),
+		resolved:        make(map[string][]echo.MiddlewareFunc),
+		unaryFactories:  make(map[string]context2.UnaryInterceptorFactory),
+		unaryResolved:   make(map[string][]grpc.UnaryServerInterceptor),
+		streamFactories: make(map[string]context2.StreamInterceptorFactory),
+		streamResolved:  make(map[string][]grpc.StreamServerInterceptor),
 	}
 }
 
@@ -66,6 +75,20 @@ func (m *MiddlewareStore) Register(name string, factory context2.MiddlewareFacto
 	delete(m.resolved, name)
 }
 
+func (m *MiddlewareStore) RegisterUnary(name string, factory context2.UnaryInterceptorFactory) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unaryFactories[name] = factory
+	delete(m.unaryResolved, name)
+}
+
+func (m *MiddlewareStore) RegisterStream(name string, factory context2.StreamInterceptorFactory) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamFactories[name] = factory
+	delete(m.streamResolved, name)
+}
+
 func (m *MiddlewareStore) Registered() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -99,10 +122,52 @@ func (m *MiddlewareStore) Resolve(names ...string) []echo.MiddlewareFunc {
 	return chain
 }
 
+// ResolveUnary 是 Resolve 的 gRPC 一元形态, 语义一致.
+func (m *MiddlewareStore) ResolveUnary(names ...string) []grpc.UnaryServerInterceptor {
+	var chain []grpc.UnaryServerInterceptor
+	for _, name := range names {
+		if built, ok := m.unaryCached(name); ok {
+			chain = append(chain, built...)
+			continue
+		}
+		factory, ok := m.unaryFactory(name)
+		if !ok {
+			continue
+		}
+
+		built := factory(m)
+		m.unaryCache(name, built)
+		chain = append(chain, built...)
+	}
+	return chain
+}
+
+// ResolveStream 是 Resolve 的 gRPC 流形态, 语义一致.
+func (m *MiddlewareStore) ResolveStream(names ...string) []grpc.StreamServerInterceptor {
+	var chain []grpc.StreamServerInterceptor
+	for _, name := range names {
+		if built, ok := m.streamCached(name); ok {
+			chain = append(chain, built...)
+			continue
+		}
+		factory, ok := m.streamFactory(name)
+		if !ok {
+			continue
+		}
+
+		built := factory(m)
+		m.streamCache(name, built)
+		chain = append(chain, built...)
+	}
+	return chain
+}
+
 func (m *MiddlewareStore) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.resolved = make(map[string][]echo.MiddlewareFunc)
+	m.unaryResolved = make(map[string][]grpc.UnaryServerInterceptor)
+	m.streamResolved = make(map[string][]grpc.StreamServerInterceptor)
 }
 
 func (m *MiddlewareStore) cached(name string) ([]echo.MiddlewareFunc, bool) {
@@ -123,4 +188,44 @@ func (m *MiddlewareStore) cache(name string, built []echo.MiddlewareFunc) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.resolved[name] = built
+}
+
+func (m *MiddlewareStore) unaryCached(name string) ([]grpc.UnaryServerInterceptor, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	built, ok := m.unaryResolved[name]
+	return built, ok
+}
+
+func (m *MiddlewareStore) unaryFactory(name string) (context2.UnaryInterceptorFactory, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	factory, ok := m.unaryFactories[name]
+	return factory, ok
+}
+
+func (m *MiddlewareStore) unaryCache(name string, built []grpc.UnaryServerInterceptor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unaryResolved[name] = built
+}
+
+func (m *MiddlewareStore) streamCached(name string) ([]grpc.StreamServerInterceptor, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	built, ok := m.streamResolved[name]
+	return built, ok
+}
+
+func (m *MiddlewareStore) streamFactory(name string) (context2.StreamInterceptorFactory, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	factory, ok := m.streamFactories[name]
+	return factory, ok
+}
+
+func (m *MiddlewareStore) streamCache(name string, built []grpc.StreamServerInterceptor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamResolved[name] = built
 }

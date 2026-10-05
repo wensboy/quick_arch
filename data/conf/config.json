@@ -31,9 +31,18 @@
         },
         "rpc": {
             "address": ":9090",
-            "middlewares": [
-                "recover"
-            ]
+            "unary_middlewares": [
+                "recover_rpc"
+            ],
+            "stream_middlewares": [
+                "recover_rpc"
+            ],
+            "reflection": true,
+            "tls": {
+                "enabled": true,
+                "cert_file": "data/cert/dev.crt",
+                "key_file": "data/cert/dev.key"
+            }
         }
     },
     "middleware": {
@@ -41,7 +50,9 @@
             "exclude": []
         },
         "debug": {
-            "include": ["/api"],
+            "include": [
+                "/api"
+            ],
             "exclude": []
         }
     },

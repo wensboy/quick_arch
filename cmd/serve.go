@@ -59,7 +59,7 @@ func setupServe(ctx context.Context) (server.Server, *context2.ServerContext, fu
 
 	sctx := context2.NewServerContext(app.ConfigContext, app.LogContext, dbManager, mw, app.EmbedContext)
 
-	srv, err := server.New(serverCfg, router.Routers())
+	srv, err := server.New(serverCfg, router.Routers(), router.Services()...)
 	if err != nil {
 		cleanup()
 		return nil, nil, nil, err
@@ -71,6 +71,10 @@ func setupServe(ctx context.Context) (server.Server, *context2.ServerContext, fu
 			"kind", serverCfg.Kind,
 			"address", serverCfg.Address,
 			"middleware", serverCfg.Middlewares,
+			"unary_middleware", serverCfg.UnaryMiddlewares,
+			"stream_middleware", serverCfg.StreamMiddlewares,
+			"reflection", serverCfg.Reflection,
+			"tls", serverCfg.TLSEnabled,
 			"db", dbManager.Names(),
 		)
 	}

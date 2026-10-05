@@ -4,11 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/wensboy/quick_arch/handler"
 	"github.com/wensboy/quick_arch/internal/config"
@@ -17,6 +22,7 @@ import (
 	embed2 "github.com/wensboy/quick_arch/internal/embed"
 	"github.com/wensboy/quick_arch/internal/server"
 	"github.com/wensboy/quick_arch/model"
+	builtinpb "github.com/wensboy/quick_arch/proto/builtin"
 )
 
 const testOpenAPISpec = `{"openapi":"3.0.3","paths":{"/api/v1/ping":{"get":{}}}}`
@@ -118,11 +124,86 @@ func TestServe_MiddlewareExclude(t *testing.T) {
 
 func TestServe_UnsupportedKind(t *testing.T) {
 	app := testAppContext(t, map[string]any{
-		"server": map[string]any{"type": "rpc"},
+		"server": map[string]any{"type": "graphql"},
 	})
 
 	if _, _, _, err := setupServe(app); !errors.Is(err, server.ErrUnsupportedKind) {
 		t.Fatalf("err = %v, want ErrUnsupportedKind", err)
+	}
+}
+
+// TestServe_RPCPingOverBufconn 用真实 gRPC 调用覆盖 proto -> 实现 -> 服务端装配 全链路.
+func TestServe_RPCPingOverBufconn(t *testing.T) {
+	app := testAppContext(t, map[string]any{
+		"server": map[string]any{
+			"type": "rpc",
+			"rpc": map[string]any{
+				"address":            ":0",
+				"unary_middlewares":  []any{"recover_rpc"},
+				"stream_middlewares": []any{"recover_rpc"},
+			},
+		},
+	})
+
+	srv, _, cleanup, err := setupServe(app)
+	if err != nil {
+		t.Fatalf("setupServe: %v", err)
+	}
+	defer cleanup()
+
+	rpc, ok := srv.(*server.RpcServer)
+	if !ok {
+		t.Fatalf("server = %T, want *server.RpcServer", srv)
+	}
+
+	listener := bufconn.Listen(1024 * 1024)
+	go func() { _ = rpc.Handler().Serve(listener) }()
+	defer rpc.Handler().Stop()
+
+	conn, err := grpc.NewClient("passthrough:///bufnet",
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return listener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	resp, err := builtinpb.NewBuiltinClient(conn).Ping(context.Background(), &builtinpb.PingRequest{})
+	if err != nil {
+		t.Fatalf("Ping: %v", err)
+	}
+	if resp.GetMessage() != "pong" {
+		t.Fatalf("message = %q, want pong", resp.GetMessage())
+	}
+}
+
+func TestServe_RPCBuildsRpcServer(t *testing.T) {
+	app := testAppContext(t, map[string]any{
+		"server": map[string]any{
+			"type": "rpc",
+			"rpc": map[string]any{
+				"address":            ":0",
+				"unary_middlewares":  []any{"recover_rpc"},
+				"stream_middlewares": []any{"recover_rpc"},
+			},
+		},
+	})
+
+	srv, _, cleanup, err := setupServe(app)
+	if err != nil {
+		t.Fatalf("setupServe: %v", err)
+	}
+	defer cleanup()
+
+	rpc, ok := srv.(*server.RpcServer)
+	if !ok {
+		t.Fatalf("server = %T, want *server.RpcServer", srv)
+	}
+	if rpc.Handler() == nil {
+		t.Fatal("grpc server should be built during setup")
 	}
 }
 

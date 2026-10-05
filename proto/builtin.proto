@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package builtin;
+
+option go_package = "github.com/wensboy/quick_arch/proto/builtin;builtinpb";
+
+// Builtin 是 builtin 领域的 gRPC 服务, 与 REST 侧 /api/v1/ping 对应.
+service Builtin {
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {}
+
+message PingResponse {
+  string message = 1;
+}
