@@ -1,0 +1,59 @@
+{
+    "$schema": "./.schema/config.schema.json",
+    "log": {
+        "level": "info",
+        "encoding": "console",
+        "output": "stdout",
+        "dir": "data/log",
+        "filename": "app.log",
+        "maxSize": 100,
+        "maxBackups": 7,
+        "maxAge": 30,
+        "compress": false,
+        "caller": false
+    },
+    "database": [
+        {
+            "name": "dev",
+            "driver": "sqlite3",
+            "dsn": "data/store/dev.db"
+        }
+    ],
+    "server": {
+        "type": "rest",
+        "rest": {
+            "address": ":8080",
+            "middlewares": [
+                "access_log",
+                "recover",
+                "request_id"
+            ]
+        },
+        "rpc": {
+            "address": ":9090",
+            "middlewares": [
+                "recover"
+            ]
+        }
+    },
+    "middleware": {
+        "access_log": {
+            "exclude": []
+        },
+        "debug": {
+            "include": ["/api"],
+            "exclude": []
+        }
+    },
+    "services": {
+        "builtin": {
+            "scalar": {
+                "enabled": true,
+                "title": "Quick Arch API",
+                "theme": "",
+                "darkMode": false,
+                "cdn": ""
+            }
+        }
+    }
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "command.schema.json",
+  "title": "command source",
+  "description": "quick_arch command source file",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["command"],
+  "properties": {
+    "$schema": { "type": "string", "description": "schema 文件引用" },
+    "version": { "type": "string", "description": "命令源版本" },
+    "description": { "type": "string", "description": "命令源描述" },
+    "lastModified": { "type": "string", "description": "最近修改时间" },
+    "command": { "$ref": "#/$defs/command" }
+  },
+  "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "命令名, 根命令留空则由程序名推导" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "usage": { "type": "string" },
+        "usageText": { "type": "string" },
+        "argsUsage": { "type": "string" },
+        "description": { "type": "string" },
+        "version": { "type": "string" },
+        "category": { "type": "string" },
+        "hidden": { "type": "boolean" },
+        "hideHelp": { "type": "boolean" },
+        "flags": { "type": "array", "items": { "$ref": "#/$defs/flag" } },
+        "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } }
+      }
+    },
+    "flag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string" },
+        "aliases": { "type": "array", "items": { "type": "string" } },
+        "usage": { "type": "string" },
+        "type": { "type": "string", "enum": ["string", "int", "float", "bool"] },
+        "required": { "type": "boolean" },
+        "hidden": { "type": "boolean" }
+      }
+    }
+  }
+}

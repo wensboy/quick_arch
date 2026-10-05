@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "config.schema.json",
+  "title": "config source",
+  "description": "quick_arch config source file",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string", "description": "schema 文件引用" },
+    "log": { "$ref": "#/$defs/log" },
+    "database": { "$ref": "#/$defs/database" },
+    "server": { "$ref": "#/$defs/server" },
+    "middleware": { "$ref": "#/$defs/middleware" },
+    "services": { "$ref": "#/$defs/services" }
+  },
+  "$defs": {
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error", "dpanic", "panic", "fatal"]
+        },
+        "encoding": { "type": "string", "enum": ["console", "json"] },
+        "output": { "type": "string", "enum": ["stdout", "stderr", "file", "both"] },
+        "dir": { "type": "string" },
+        "filename": { "type": "string" },
+        "maxSize": { "type": "integer", "minimum": 1 },
+        "maxBackups": { "type": "integer", "minimum": 0 },
+        "maxAge": { "type": "integer", "minimum": 0 },
+        "compress": { "type": "boolean" },
+        "caller": { "type": "boolean" }
+      }
+    },
+    "database": {
+      "type": "array",
+      "description": "数据库实例列表; 为空则不加载任何实例, 同名实例只加载第一个",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/databaseSQLite" },
+          { "$ref": "#/$defs/databaseMySQL" }
+        ]
+      }
+    },
+    "databaseSQLite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "driver", "dsn"],
+      "properties": {
+        "name": { "type": "string", "description": "实例名, 代码中按此名获取" },
+        "driver": { "type": "string", "enum": ["sqlite3"] },
+        "dsn": { "type": "string", "description": "sqlite 文件路径或 DSN, 如 :memory:" }
+      }
+    },
+    "databaseMySQL": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "driver", "host", "user", "database"],
+      "properties": {
+        "name": { "type": "string", "description": "实例名, 代码中按此名获取" },
+        "driver": { "type": "string", "enum": ["mysql", "mariadb"], "description": "两者共用 mysql 驱动" },
+        "net": {
+          "type": "string",
+          "enum": ["tcp", "tcp4", "tcp6", "unix"],
+          "description": "连接协议, 默认 tcp; 为 unix 时 host 即 socket 路径"
+        },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535, "description": "默认 3306" },
+        "user": { "type": "string" },
+        "password": { "type": "string" },
+        "database": { "type": "string", "description": "库名" },
+        "charset": { "type": "string", "description": "会话字符集, 如 utf8mb4" },
+        "collation": { "type": "string", "description": "排序规则, 空则用驱动默认" },
+        "parseTime": { "type": "boolean", "description": "DATE/DATETIME 解析为 time.Time, 默认 true" },
+        "loc": { "type": "string", "description": "时区, 如 Local/UTC/Asia/Shanghai, 默认 UTC" },
+        "timeout": { "type": "string", "description": "建连超时, 如 5s" },
+        "readTimeout": { "type": "string", "description": "读超时, 如 10s" },
+        "writeTimeout": { "type": "string", "description": "写超时, 如 10s" },
+        "tls": {
+          "type": "string",
+          "description": "TLS 配置: true|false|skip-verify|preferred 或已注册的配置名"
+        },
+        "multiStatements": { "type": "boolean", "description": "允许一次执行多条语句" },
+        "interpolateParams": { "type": "boolean", "description": "客户端侧参数插值" },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "其余驱动参数与会话系统变量, 如 time_zone/sql_mode"
+        }
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["rest", "rpc"] },
+        "rest": { "$ref": "#/$defs/serviceType" },
+        "rpc": { "$ref": "#/$defs/serviceType" }
+      }
+    },
+    "serviceType": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string", "description": "监听地址" },
+        "middlewares": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "按序生效的全局中间件名"
+        }
+      }
+    },
+    "middleware": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "access_log": { "$ref": "#/$defs/middlewareFilter" },
+        "debug": { "$ref": "#/$defs/middlewareFilter" }
+      }
+    },
+    "services": {
+      "type": "object",
+      "description": "业务领域 (sub domain) 配置",
+      "additionalProperties": false,
+      "properties": {
+        "builtin": { "$ref": "#/$defs/builtin" }
+      }
+    },
+    "builtin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scalar": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "开放 scalar 与 openapi 文档端点" },
+            "title": { "type": "string", "description": "API 文档标题" },
+            "theme": {
+              "type": "string",
+              "description": "Scalar 主题, 空则用内置样式",
+              "enum": [
+                "", "default", "alternate", "moon", "purple", "solarized",
+                "bluePlanet", "deepSpace", "saturn", "kepler", "mars", "none"
+              ]
+            },
+            "darkMode": { "type": "boolean" },
+            "cdn": { "type": "string", "description": "Scalar 前端 CDN, 空则用默认" }
+          }
+        }
+      }
+    },
+    "middlewareFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "生效规则前缀: rest 为 URI 路径, rpc 为函数名"
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "放行规则前缀, 优先于 include: rest 为 URI 路径, rpc 为函数名"
+        }
+      }
+    }
+  }
+}

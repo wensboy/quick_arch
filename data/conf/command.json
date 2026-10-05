@@ -1,0 +1,69 @@
+{
+    "$schema": "./.schema/command.schema.json",
+    "version": "v0.1.0-dev",
+    "description": "command source file",
+    "lastModified": "2026/10/05",
+    "command": {
+        "usage": "解耦服务层的薄启动骨架",
+        "description": "示例命令树, 用于命令构建与单元测试",
+        "flags": [
+            {
+                "name": "config",
+                "aliases": ["c"],
+                "type": "string",
+                "usage": "配置文件路径"
+            },
+            {
+                "name": "verbose",
+                "aliases": ["V"],
+                "type": "bool",
+                "usage": "输出详细日志"
+            }
+        ],
+        "commands": [
+            {
+                "name": "version",
+                "usage": "打印版本信息",
+                "description": "打印当前二进制版本",
+                "flags": [
+                    {
+                        "name": "short",
+                        "aliases": ["s"],
+                        "type": "bool",
+                        "usage": "仅输出版本号"
+                    }
+                ]
+            },
+            {
+                "name": "serve",
+                "aliases": ["srv"],
+                "usage": "启动服务",
+                "flags": [
+                    {
+                        "name": "port",
+                        "aliases": ["p"],
+                        "type": "int",
+                        "usage": "监听端口"
+                    },
+                    {
+                        "name": "rate",
+                        "type": "float",
+                        "usage": "限流速率"
+                    }
+                ],
+                "commands": [
+                    {
+                        "name": "rest",
+                        "usage": "以 REST 模式启动"
+                    }
+                ]
+            },
+            {
+                "name": "generate",
+                "aliases": ["gen"],
+                "usage": "生成 schema 与配置模板",
+                "description": "根据内置结构生成 schema 文件与配置模板"
+            }
+        ]
+    }
+}

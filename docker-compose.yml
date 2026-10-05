@@ -1,0 +1,26 @@
+services:
+  quick_arch:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: ${IMAGE:-quick_arch}:${APP_VERSION:-dev}
+    container_name: quick_arch
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    environment:
+      SERVER_TYPE: rest
+      SERVER_REST_ADDRESS: ":8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_ENCODING: ${LOG_ENCODING:-json}
+      LOG_OUTPUT: ${LOG_OUTPUT:-stdout}
+    volumes:
+      # data/log 与 data/store (dev sqlite) 落到具名卷, 避免容器重建丢数据.
+      - quick_arch_data:/app/data
+    # 应用收到信号后有 10s 优雅退出窗口, 终止等待需大于该值.
+    stop_grace_period: 30s
+
+volumes:
+  quick_arch_data:
