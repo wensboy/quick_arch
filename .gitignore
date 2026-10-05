@@ -3,3 +3,4 @@ test/
 .env
 log*/
 data/store/*.db*
+!/internal/log/
